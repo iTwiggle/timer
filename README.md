@@ -33,5 +33,5 @@ To create a "chaos timer" that keeps you on your toes. Perfect for mindfulness c
 *   Convert to Progressive Web App (PWA) for background mobile execution
 *   Add custom sound upload and local storage saving
 *   Cloud sync across devices
-*.  app on Android and iOS app stores
+*   App on Android and iOS app stores
 
