@@ -35,3 +35,20 @@ To create a "chaos timer" that keeps you on your toes. Perfect for mindfulness c
 *   Cloud sync across devices
 *   App on Android and iOS app stores
 
+## 🤖 Native Android MVP
+
+The Android implementation is now in this repository. It owns exact alarms and foreground audio playback, so prompts can fire while the app is closed, the Pixel is locked, or the device is sleeping.
+
+### Included
+
+- Exact or randomized prompts per day
+- Active time window and minimum spacing
+- Persistent multi-recording audio deck
+- Shuffle without repeats
+- MP3, WAV, M4A, AAC, OGG, and Opus importing
+- Notification actions for **DONE** and **Snooze 10 min — excuses > motivation**
+- Boot rescheduling and accountability history
+
+### Phone-only build
+
+GitHub Actions builds the installable debug APK on every push and pull request. Open a successful **Build Android APK** workflow run, download the `RandomChime-debug-apk` artifact, unzip it, and install `app-debug.apk` on Android.
