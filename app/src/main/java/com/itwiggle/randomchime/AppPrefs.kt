@@ -6,12 +6,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalTime
 
-data class Clip(val uri:String, var name:String, var category:String="Motivation", var enabled:Boolean=true)
+data class Clip(val uri: String, var name: String, var category: String = "Motivation", var enabled: Boolean = true)
 data class Settings(
-    var start:String="09:00", var end:String="21:00", var exactMode:Boolean=false,
-    var exactCount:Int=2, var minCount:Int=1, var maxCount:Int=3, var minGap:Int=60,
-    var volume:Int=70, var vibrate:Boolean=true, var shuffle:Boolean=true,
-    var days:Set<Int>=(1..7).toSet(), var armed:Boolean=false
+    var start: String = "09:00", var end: String = "21:00", var exactMode: Boolean = false,
+    var exactCount: Int = 2, var minCount: Int = 1, var maxCount: Int = 3, var minGap: Int = 60,
+    var volume: Int = 70, var vibrate: Boolean = true, var shuffle: Boolean = true,
+    var days: Set<Int> = (1..7).toSet(), var armed: Boolean = false
 )
 
 class AppPrefs(context:Context) {
