@@ -10,11 +10,15 @@ android {
         versionCode = 1
         versionName = "1.0.0"
     }
-    val cloudKeystorePath = providers.gradleProperty("cloudKeystore").orNull
+    val encodedCloudKey = rootProject.file("cloud-debug.keystore.b64")
+    val cloudKeystoreFile = layout.buildDirectory.file("cloud-debug.keystore").get().asFile.apply {
+        parentFile.mkdirs()
+        if (!exists() && encodedCloudKey.exists()) writeBytes(java.util.Base64.getDecoder().decode(encodedCloudKey.readText().trim()))
+    }
     signingConfigs {
-        if (cloudKeystorePath != null) {
+        if (cloudKeystoreFile.exists()) {
             create("cloudDebug") {
-                storeFile = file(cloudKeystorePath)
+                storeFile = cloudKeystoreFile
                 storePassword = "android"
                 keyAlias = "androiddebugkey"
                 keyPassword = "android"
@@ -23,7 +27,7 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            if (cloudKeystorePath != null) signingConfig = signingConfigs.getByName("cloudDebug")
+            if (cloudKeystoreFile.exists()) signingConfig = signingConfigs.getByName("cloudDebug")
         }
         getByName("release") {
             isMinifyEnabled = false
