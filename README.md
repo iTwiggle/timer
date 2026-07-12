@@ -52,3 +52,7 @@ The Android implementation is now in this repository. It owns exact alarms and f
 ### Phone-only build
 
 GitHub Actions builds the installable debug APK on every push and pull request. Open a successful **Build Android APK** workflow run, download the `RandomChime-debug-apk` artifact, unzip it, and install `app-debug.apk` on Android.
+
+### Stable cloud updates
+
+Cloud debug builds use one deliberately non-production signing identity stored with this private source. After installing the first stable-signed debug APK, later cloud APKs install as updates and preserve recordings, settings, and history. Google Play production releases use a separate Play App Signing identity.
