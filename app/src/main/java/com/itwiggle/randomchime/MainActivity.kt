@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.provider.MediaStore
 import android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM
 import android.view.Gravity
 import android.view.View
@@ -19,6 +20,7 @@ import android.view.ViewGroup
 import android.widget.*
 import java.text.DateFormat
 import java.util.Date
+import java.io.File
 
 class MainActivity : Activity() {
     private lateinit var prefs: AppPrefs
@@ -28,6 +30,7 @@ class MainActivity : Activity() {
     private val green = Color.rgb(31, 107, 79)
     private val paper = Color.rgb(251, 252, 248)
     private val pickAudio = 41
+    private val recordAudio = 42
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -178,6 +181,10 @@ class MainActivity : Activity() {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
             }, pickAudio)
         })
+        panel.addView(button("● Record a prompt", false) {
+            try { startActivityForResult(Intent(MediaStore.Audio.Media.RECORD_SOUND_ACTION), recordAudio) }
+            catch (_: Exception) { Toast.makeText(this, "No compatible recorder app was found.", Toast.LENGTH_LONG).show() }
+        })
         panel.addView(text("${clips.count { it.enabled }} active · shuffle without repeats", 12f))
         if (clips.isEmpty()) panel.addView(text("No recordings yet. Android's alarm tone is the fallback."))
         clips.toList().forEachIndexed { index, clip -> panel.addView(clipRow(index, clip)) }
@@ -202,7 +209,8 @@ class MainActivity : Activity() {
         val panel = card().apply { gravity = Gravity.CENTER }
         panel.addView(text("THE VOICE HAS SPOKEN", 11f, true)); panel.addView(text("So—did you do it?", 27f, true)); panel.addView(text(label))
         panel.addView(button("✓ DONE") { sendService(PromptPlaybackService.DONE); draw() })
-        panel.addView(button("Snooze 10 min — excuses > motivation", false) { sendService(PromptPlaybackService.SNOOZE); draw() })
+        if (prefs.activeIsRetry()) panel.addView(button("Skip it — motivation wins this round", false) { sendService(PromptPlaybackService.SKIP); draw() })
+        else panel.addView(button("Snooze 10 min — excuses > motivation", false) { sendService(PromptPlaybackService.SNOOZE); draw() })
         root.addView(panel); root.addView(spacer())
     }
 
@@ -211,7 +219,7 @@ class MainActivity : Activity() {
         if (history.length() == 0) panel.addView(text("No prompts yet."))
         for (i in 0 until minOf(history.length(), 8)) {
             val item = history.getJSONObject(i); val outcome = item.optString("outcome")
-            val icon = if (outcome == "done") "✓" else if (outcome == "snoozed") "↻" else "♪"
+            val icon = if (outcome == "done") "✓" else if (outcome == "snoozed") "↻" else if (outcome == "skipped") "×" else "♪"
             panel.addView(text("$icon  ${item.getString("label")} · $outcome"))
         }
         panel.addView(button("Clear history", false) { prefs.clearHistory(); draw() }); root.addView(panel)
@@ -222,13 +230,26 @@ class MainActivity : Activity() {
     @Deprecated("Legacy picker retained to avoid an additional UI dependency")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != pickAudio || resultCode != RESULT_OK || data == null) return
+        if (resultCode != RESULT_OK || data == null) return
+        if (requestCode == recordAudio) { importRecording(data.data); return }
+        if (requestCode != pickAudio) return
         val uris = mutableListOf<Uri>(); data.data?.let(uris::add); data.clipData?.let { list -> for (i in 0 until list.itemCount) uris.add(list.getItemAt(i).uri) }
         uris.distinct().forEach { uri ->
             try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
             if (clips.none { it.uri == uri.toString() }) clips.add(Clip(uri.toString(), displayName(uri)))
         }
         prefs.saveClips(clips); draw()
+    }
+
+    private fun importRecording(source: Uri?) {
+        if (source == null) { Toast.makeText(this, "The recorder did not return an audio file.", Toast.LENGTH_LONG).show(); return }
+        try {
+            val directory=File(filesDir,"recordings").apply { mkdirs() }
+            val destination=File(directory,"voice-${System.currentTimeMillis()}.m4a")
+            contentResolver.openInputStream(source)!!.use { input -> destination.outputStream().use { output -> input.copyTo(output) } }
+            clips.add(Clip(Uri.fromFile(destination).toString(),"Voice prompt ${clips.size+1}","My voice"))
+            prefs.saveClips(clips); draw()
+        } catch (_: Exception) { Toast.makeText(this,"Could not save that recording.",Toast.LENGTH_LONG).show() }
     }
 
     private fun displayName(uri: Uri): String {
