@@ -10,25 +10,7 @@ android {
         versionCode = 1
         versionName = "1.0.0"
     }
-    val encodedCloudKey = rootProject.file("cloud-debug.keystore.b64")
-    val cloudKeystoreFile = layout.buildDirectory.file("cloud-debug.keystore").get().asFile.apply {
-        parentFile.mkdirs()
-        if (!exists() && encodedCloudKey.exists()) writeBytes(java.util.Base64.getDecoder().decode(encodedCloudKey.readText().trim()))
-    }
-    signingConfigs {
-        if (cloudKeystoreFile.exists()) {
-            create("cloudDebug") {
-                storeFile = cloudKeystoreFile
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
-            }
-        }
-    }
     buildTypes {
-        getByName("debug") {
-            if (cloudKeystoreFile.exists()) signingConfig = signingConfigs.getByName("cloudDebug")
-        }
         getByName("release") {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
