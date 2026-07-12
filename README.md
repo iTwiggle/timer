@@ -55,4 +55,4 @@ GitHub Actions builds the installable debug APK on every push and pull request. 
 
 ### Stable cloud updates
 
-Cloud debug builds use one deliberately non-production signing identity stored with this private source. After installing the first stable-signed debug APK, later cloud APKs install as updates and preserve recordings, settings, and history. Google Play production releases use a separate Play App Signing identity.
+Stable cloud update signing is the next deployment step. Its keystore must be stored as an encrypted GitHub Actions secret rather than committed to source. Google Play production releases will use a separate Play App Signing identity.
