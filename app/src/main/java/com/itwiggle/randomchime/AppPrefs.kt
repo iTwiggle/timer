@@ -30,12 +30,14 @@ class AppPrefs(context:Context) {
     fun clearHistory(){p.edit().remove("history").apply()}
     fun activeLabel():String?=p.getString("active_label",null)
     fun setActiveLabel(value:String?){p.edit().apply{if(value==null)remove("active_label") else putString("active_label",value)}.apply()}
+    fun activeIsRetry():Boolean=p.getBoolean("active_is_retry",false)
+    fun clearActiveRetry(){p.edit().putBoolean("active_is_retry",false).apply()}
     fun setNextAt(value:Long){p.edit().putLong("next_at",value).apply()}
     fun nextAt():Long=p.getLong("next_at",0)
     fun planDay():String=p.getString("plan_day","")!!
     fun remaining():Int=p.getInt("remaining",0)
     fun setPlan(day:String,count:Int){p.edit().putString("plan_day",day).putInt("remaining",count).apply()}
-    fun markFired(){if(p.getBoolean("snooze_pending",false)){p.edit().putBoolean("snooze_pending",false).apply();return};p.edit().putInt("remaining",(remaining()-1).coerceAtLeast(0)).putLong("last_fired",System.currentTimeMillis()).apply()}
+    fun markFired(){if(p.getBoolean("snooze_pending",false)){p.edit().putBoolean("snooze_pending",false).putBoolean("active_is_retry",true).apply();return};p.edit().putBoolean("active_is_retry",false).putInt("remaining",(remaining()-1).coerceAtLeast(0)).putLong("last_fired",System.currentTimeMillis()).apply()}
     fun markSnooze(){p.edit().putBoolean("snooze_pending",true).apply()}
     fun lastFired():Long=p.getLong("last_fired",0)
 }
