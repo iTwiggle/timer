@@ -3,6 +3,7 @@ package com.itwiggle.randomchime
 import android.Manifest
 import android.app.Activity
 import android.app.AlarmManager
+import android.app.AlertDialog
 import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -27,16 +28,19 @@ class MainActivity : Activity() {
     private lateinit var root: LinearLayout
     private var config = Settings()
     private var clips = mutableListOf<Clip>()
+    private var textPrompts = mutableListOf<TextPrompt>()
     private val green = Color.rgb(31, 107, 79)
     private val paper = Color.rgb(251, 252, 248)
     private val pickAudio = 41
     private val recordAudio = 42
+    private val importText = 43
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         prefs = AppPrefs(this)
         config = prefs.settings()
         clips = prefs.clips()
+        textPrompts = prefs.textPrompts()
         requestNeededPermissions()
         draw()
     }
@@ -118,6 +122,7 @@ class MainActivity : Activity() {
         drawStatus()
         drawSchedule()
         drawDeck()
+        drawTextDeck()
         drawVerdict()
         drawHistory()
     }
@@ -205,9 +210,9 @@ class MainActivity : Activity() {
     }
 
     private fun drawVerdict() {
-        val label = prefs.activeLabel() ?: return
+        val payload = prefs.activePayload() ?: return
         val panel = card().apply { gravity = Gravity.CENTER }
-        panel.addView(text("THE VOICE HAS SPOKEN", 11f, true)); panel.addView(text("So—did you do it?", 27f, true)); panel.addView(text(label))
+        panel.addView(text("THE VOICE HAS SPOKEN", 11f, true)); panel.addView(text("So—did you do it?", 27f, true)); panel.addView(text(payload.message,18f,true)); panel.addView(text("${payload.audioCategory} · ${payload.audioLabel}",12f))
         panel.addView(button("✓ DONE") { sendService(PromptPlaybackService.DONE); draw() })
         if (prefs.activeIsRetry()) panel.addView(button("Skip it — motivation wins this round", false) { sendService(PromptPlaybackService.SKIP); draw() })
         else panel.addView(button("Snooze 10 min — excuses > motivation", false) { sendService(PromptPlaybackService.SNOOZE); draw() })
@@ -220,7 +225,7 @@ class MainActivity : Activity() {
         for (i in 0 until minOf(history.length(), 8)) {
             val item = history.getJSONObject(i); val outcome = item.optString("outcome")
             val icon = if (outcome == "done") "✓" else if (outcome == "snoozed") "↻" else if (outcome == "skipped") "×" else "♪"
-            panel.addView(text("$icon  ${item.getString("label")} · $outcome"))
+            panel.addView(text("$icon  ${item.optString("audioLabel","Prompt")} · ${item.optString("messageCategory","Mindset")} · $outcome"))
         }
         panel.addView(button("Clear history", false) { prefs.clearHistory(); draw() }); root.addView(panel)
     }
@@ -232,6 +237,7 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK || data == null) return
         if (requestCode == recordAudio) { importRecording(data.data); return }
+        if (requestCode == importText) { importTextFile(data.data); return }
         if (requestCode != pickAudio) return
         val uris = mutableListOf<Uri>(); data.data?.let(uris::add); data.clipData?.let { list -> for (i in 0 until list.itemCount) uris.add(list.getItemAt(i).uri) }
         uris.distinct().forEach { uri ->
@@ -250,6 +256,36 @@ class MainActivity : Activity() {
             clips.add(Clip(Uri.fromFile(destination).toString(),"Voice prompt ${clips.size+1}","My voice"))
             prefs.saveClips(clips); draw()
         } catch (_: Exception) { Toast.makeText(this,"Could not save that recording.",Toast.LENGTH_LONG).show() }
+    }
+
+    private fun drawTextDeck() {
+        val panel=card(); panel.addView(section("Words for the notification shade"))
+        panel.addView(row(button("＋ Add message") { showAddMessage() },button("Import TXT / CSV",false) {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="text/*";addCategory(Intent.CATEGORY_OPENABLE);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) },importText)
+        }))
+        panel.addView(text("${textPrompts.count { it.enabled }} active · shuffle without repeats",12f))
+        textPrompts.toList().forEachIndexed { index,prompt ->
+            panel.addView(row(text(prompt.text,12f),button(if(prompt.enabled)"ON" else "OFF",false){prompt.enabled=!prompt.enabled;prefs.saveTextPrompts(textPrompts);draw()},button("×",false){textPrompts.removeAt(index);prefs.saveTextPrompts(textPrompts);draw()}))
+        }
+        root.addView(panel);root.addView(spacer())
+    }
+
+    private fun showAddMessage() {
+        val input=EditText(this).apply { hint="Your excuse has been noted and denied.";minLines=3 }
+        AlertDialog.Builder(this).setTitle("Add notification message").setView(input).setNegativeButton("Cancel",null).setPositiveButton("Add") { _,_->
+            val value=input.text.toString().trim();if(value.isNotBlank()){prefs.addTextPrompts(listOf(value));textPrompts=prefs.textPrompts();draw()}
+        }.show()
+    }
+
+    private fun importTextFile(source:Uri?) {
+        if(source==null)return
+        try {
+            val raw=contentResolver.openInputStream(source)!!.bufferedReader().use { it.readText() }
+            val lines=raw.lineSequence().map { line->
+                val trimmed=line.trim();if(trimmed.startsWith("text,",true))"" else if(trimmed.startsWith("\"")&&trimmed.contains("\",""))trimmed.substringAfter("\"").substringBefore("\",") else trimmed.substringBefore(',')
+            }.toList()
+            prefs.addTextPrompts(lines);textPrompts=prefs.textPrompts();draw()
+        } catch(_:Exception){Toast.makeText(this,"Could not import that text file.",Toast.LENGTH_LONG).show()}
     }
 
     private fun displayName(uri: Uri): String {
