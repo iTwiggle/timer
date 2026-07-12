@@ -282,7 +282,12 @@ class MainActivity : Activity() {
         try {
             val raw=contentResolver.openInputStream(source)!!.bufferedReader().use { it.readText() }
             val lines=raw.lineSequence().map { line->
-                val trimmed=line.trim();if(trimmed.startsWith("text,",true))"" else if(trimmed.startsWith("\"")&&trimmed.contains("\",""))trimmed.substringAfter("\"").substringBefore("\",") else trimmed.substringBefore(',')
+                val trimmed=line.trim()
+                when {
+                    trimmed.startsWith("text,",true) -> ""
+                    trimmed.startsWith("\"") -> trimmed.removePrefix("\"").substringBefore("\",")
+                    else -> trimmed.substringBefore(',')
+                }
             }.toList()
             prefs.addTextPrompts(lines);textPrompts=prefs.textPrompts();draw()
         } catch(_:Exception){Toast.makeText(this,"Could not import that text file.",Toast.LENGTH_LONG).show()}
