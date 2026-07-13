@@ -16,6 +16,7 @@ import android.provider.OpenableColumns
 import android.provider.MediaStore
 import android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
@@ -90,6 +91,19 @@ class MainActivity : Activity() {
     private fun spacer() = Space(this).apply { minimumHeight = dp(14) }
     private fun section(value: String) = text(value, 23f, true)
     private fun saveAndDraw() { prefs.save(config); draw() }
+    private fun cappedCollection(size: Int, estimatedRowHeight: Int, row: (Int) -> View): View {
+        val contents=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;repeat(size) { addView(row(it)) } }
+        if(size<=5)return contents
+        return ScrollView(this).apply {
+            addView(contents)
+            layoutParams=LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(estimatedRowHeight*5))
+            isVerticalScrollBarEnabled=true
+            setOnTouchListener { view,event ->
+                when(event.actionMasked){MotionEvent.ACTION_DOWN,MotionEvent.ACTION_MOVE->view.parent.requestDisallowInterceptTouchEvent(true);MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->view.parent.requestDisallowInterceptTouchEvent(false)}
+                false
+            }
+        }
+    }
 
     private fun timeButton(label: String, value: String, save: (String) -> Unit) = button("$label  $value", false) {
         val parts = value.split(":")
@@ -192,7 +206,8 @@ class MainActivity : Activity() {
         })
         panel.addView(text("${clips.count { it.enabled }} active · shuffle without repeats", 12f))
         if (clips.isEmpty()) panel.addView(text("No recordings yet. Android's alarm tone is the fallback."))
-        clips.toList().forEachIndexed { index, clip -> panel.addView(clipRow(index, clip)) }
+        val snapshot=clips.toList()
+        panel.addView(cappedCollection(snapshot.size,92) { index->clipRow(index,snapshot[index]) })
         root.addView(panel); root.addView(spacer())
     }
 
@@ -264,9 +279,11 @@ class MainActivity : Activity() {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="text/*";addCategory(Intent.CATEGORY_OPENABLE);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) },importText)
         }))
         panel.addView(text("${textPrompts.count { it.enabled }} active · shuffle without repeats",12f))
-        textPrompts.toList().forEachIndexed { index,prompt ->
-            panel.addView(row(text(prompt.text,12f),button(if(prompt.enabled)"ON" else "OFF",false){prompt.enabled=!prompt.enabled;prefs.saveTextPrompts(textPrompts);draw()},button("×",false){textPrompts.removeAt(index);prefs.saveTextPrompts(textPrompts);draw()}))
-        }
+        val snapshot=textPrompts.toList()
+        panel.addView(cappedCollection(snapshot.size,70) { index->
+            val prompt=snapshot[index]
+            row(text(prompt.text,12f),button(if(prompt.enabled)"ON" else "OFF",false){prompt.enabled=!prompt.enabled;prefs.saveTextPrompts(textPrompts);draw()},button("×",false){textPrompts.remove(prompt);prefs.saveTextPrompts(textPrompts);draw()})
+        })
         root.addView(panel);root.addView(spacer())
     }
 
