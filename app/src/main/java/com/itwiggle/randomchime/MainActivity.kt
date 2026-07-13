@@ -30,6 +30,7 @@ class MainActivity : Activity() {
     private var config = Settings()
     private var clips = mutableListOf<Clip>()
     private var textPrompts = mutableListOf<TextPrompt>()
+    private var revealedAlarmAt: Long? = null
     private val green = Color.rgb(31, 107, 79)
     private val paper = Color.rgb(251, 252, 248)
     private val pickAudio = 41
@@ -145,8 +146,31 @@ class MainActivity : Activity() {
         val status = card().apply { gravity = Gravity.CENTER }
         status.addView(text(if (config.armed) "ARMED" else "QUIET", 12f, true))
         val next = prefs.nextAt()
-        val nextText = if (next > System.currentTimeMillis()) DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(next)) else "Waiting to be armed"
-        status.addView(text(nextText, 25f, true))
+        val hasNextAlarm = next > System.currentTimeMillis()
+        val isTimeRevealed = hasNextAlarm && revealedAlarmAt == next
+        val nextText = when {
+            !hasNextAlarm -> "Waiting to be armed"
+            isTimeRevealed -> DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(next))
+            else -> "Next ambush: time hidden"
+        }
+        val nextAlarmRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            addView(text(nextText, 25f, true))
+            if (hasNextAlarm) addView(ImageButton(this@MainActivity).apply {
+                setImageResource(android.R.drawable.ic_menu_view)
+                setColorFilter(green)
+                setBackgroundColor(Color.TRANSPARENT)
+                contentDescription = if (isTimeRevealed) "Hide next alarm time" else "Reveal next alarm time"
+                tooltipText = contentDescription
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setOnClickListener {
+                    revealedAlarmAt = if (isTimeRevealed) null else next
+                    draw()
+                }
+            }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(4) })
+        }
+        status.addView(nextAlarmRow)
         status.addView(text(if (config.armed) "Android owns the alarm now—even while closed." else "Your settings and audio deck are stored on this phone", 12f))
         root.addView(status)
         root.addView(row(
