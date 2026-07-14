@@ -1,0 +1,23 @@
+{
+  "name": "randomizer-timer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A lightweight web app that triggers custom audio alerts at unpredictable intervals within a configurable time window.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "globals": "^15.14.0",
+    "jsdom": "^25.0.1",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  }
+}

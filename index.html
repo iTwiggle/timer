@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🎲 Randomizer Timer</title>
+  </head>
+  <body>
+    <main class="app">
+      <h1>🎲 Randomizer Timer</h1>
+      <p class="subtitle">
+        Custom alerts fire at unpredictable moments inside your window. Blame the timer. 💪
+      </p>
+
+      <div class="controls">
+        <div class="field">
+          <label for="count">Number of alerts</label>
+          <input id="count" type="number" min="1" max="100" value="3" />
+        </div>
+        <div class="field">
+          <label for="windowMin">Window (minutes)</label>
+          <input id="windowMin" type="number" min="1" max="1440" value="1" />
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="startBtn" class="btn-primary">Start</button>
+        <button id="stopBtn" class="btn-secondary">Stop</button>
+        <button id="testBtn" class="btn-secondary">Test sound</button>
+      </div>
+
+      <div id="status" class="status">
+        <span class="dot"></span>
+        <span id="statusText">Idle</span>
+      </div>
+
+      <p id="scheduleTitle" class="schedule-title" style="display: none">Scheduled alerts</p>
+      <ul id="schedule" class="schedule"></ul>
+
+      <p class="hint">
+        Tip: The window defaults to a short duration so you can see alerts fire quickly. Increase it
+        (up to 24 hours = 1440 min) for real use. Sound uses the Web Audio API; notifications need
+        browser permission.
+      </p>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
