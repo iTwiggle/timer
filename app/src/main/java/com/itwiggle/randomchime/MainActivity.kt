@@ -134,12 +134,36 @@ class MainActivity : Activity() {
         root.addView(text("RANDOM CHIME", 11f, true))
         root.addView(text("Let the day surprise you.", 30f, true))
         root.addView(spacer())
+        drawAccountabilityMirror()
         drawStatus()
         drawSchedule()
         drawDeck()
         drawTextDeck()
         drawVerdict()
         drawHistory()
+    }
+
+    private fun drawAccountabilityMirror() {
+        val state = prefs.mirrorState()
+        val panel = card()
+        panel.addView(text("ACCOUNTABILITY MIRROR", 11f, true))
+        panel.addView(section("The mirror remembers."))
+        panel.addView(AccountabilityMirrorView(this).apply {
+            mirrorState = state
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330))
+        })
+        panel.addView(text("Clarity ${state.clarity}% · Integrity ${state.integrity}%", 12f, true))
+        val message = when {
+            state.integrity < 35 -> "The reflection is still there. The surface between you and it is failing."
+            state.integrity < 70 -> "Repeated avoidance is reaching deeper than the fog."
+            state.clarity < 25 -> "Condensation wins when resolve goes unfed."
+            state.clarity < 60 -> "You can see enough to know what is waiting behind the excuses."
+            state.clarity < 90 -> "Follow-through is clearing the view. Keep feeding it."
+            else -> "No distortion. No negotiation. Just the truth in front of you."
+        }
+        panel.addView(text(message, 12f))
+        root.addView(panel)
+        root.addView(spacer())
     }
 
     private fun drawStatus() {
@@ -252,9 +276,9 @@ class MainActivity : Activity() {
         val payload = prefs.activePayload() ?: return
         val panel = card().apply { gravity = Gravity.CENTER }
         panel.addView(text("THE VOICE HAS SPOKEN", 11f, true)); panel.addView(text("So—did you do it?", 27f, true)); panel.addView(text(payload.message,18f,true)); panel.addView(text("${payload.audioCategory} · ${payload.audioLabel}",12f))
-        panel.addView(button("✓ DONE") { sendService(PromptPlaybackService.DONE); draw() })
-        if (prefs.activeIsRetry()) panel.addView(button("Skip it — motivation wins this round", false) { sendService(PromptPlaybackService.SKIP); draw() })
-        else panel.addView(button("Snooze 10 min — excuses > motivation", false) { sendService(PromptPlaybackService.SNOOZE); draw() })
+        panel.addView(button("✓ DONE") { sendService(PromptPlaybackService.DONE) })
+        if (prefs.activeIsRetry()) panel.addView(button("Skip it — motivation wins this round", false) { sendService(PromptPlaybackService.SKIP) })
+        else panel.addView(button("Snooze 10 min — excuses > motivation", false) { sendService(PromptPlaybackService.SNOOZE) })
         root.addView(panel); root.addView(spacer())
     }
 
@@ -269,7 +293,10 @@ class MainActivity : Activity() {
         panel.addView(button("Clear history", false) { prefs.clearHistory(); draw() }); root.addView(panel)
     }
 
-    private fun sendService(action: String) { startService(Intent(this, PromptPlaybackService::class.java).setAction(action)) }
+    private fun sendService(action: String) {
+        startService(Intent(this, PromptPlaybackService::class.java).setAction(action))
+        root.postDelayed({ if (!isFinishing) draw() }, 250)
+    }
 
     @Deprecated("Legacy picker retained to avoid an additional UI dependency")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
