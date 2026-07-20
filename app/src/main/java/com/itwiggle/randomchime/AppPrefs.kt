@@ -8,6 +8,12 @@ import java.util.UUID
 data class Clip(val uri: String, var name: String, var category: String = "Motivation", var enabled: Boolean = true)
 data class TextPrompt(val id: String, var text: String, var category: String = "Mindset", var intensity: String = "firm", var enabled: Boolean = true)
 data class PromptPayload(val audioUri: String?, val audioLabel: String, val audioCategory: String, val textId: String, val message: String, val messageCategory: String)
+data class MirrorState(
+    val clarity: Int = 32,
+    val integrity: Int = 100,
+    val doneStreak: Int = 0,
+    val snoozeStreak: Int = 0
+)
 data class Settings(
     var start: String = "09:00", var end: String = "21:00", var exactMode: Boolean = false,
     var exactCount: Int = 2, var minCount: Int = 1, var maxCount: Int = 3, var minGap: Int = 60,
@@ -78,6 +84,62 @@ class AppPrefs(context: Context) {
         var ids = jsonStrings("text_deck").filter { id -> enabled.any { it.id == id } }.toMutableList()
         if (ids.isEmpty()) ids = enabled.map { it.id }.shuffled().toMutableList()
         val id = ids.removeAt(0); saveStrings("text_deck", ids); return enabled.first { it.id == id }
+    }
+
+    fun mirrorState(): MirrorState {
+        val j = JSONObject(p.getString("mirror_state", "{}")!!)
+        return MirrorState(
+            clarity = j.optInt("clarity", 32).coerceIn(0, 100),
+            integrity = j.optInt("integrity", 100).coerceIn(0, 100),
+            doneStreak = j.optInt("doneStreak", 0).coerceAtLeast(0),
+            snoozeStreak = j.optInt("snoozeStreak", 0).coerceAtLeast(0)
+        )
+    }
+
+    fun applyMirrorOutcome(outcome: String) {
+        val current = mirrorState()
+        val next = when (outcome) {
+            "done" -> {
+                val nextDoneStreak = current.doneStreak + 1
+                val clarityGain = 14 + (nextDoneStreak.coerceAtMost(4) - 1) * 2
+                val integrityGain = if (current.integrity < 100) 1 + nextDoneStreak.coerceAtMost(3) else 0
+                MirrorState(
+                    clarity = (current.clarity + clarityGain).coerceAtMost(100),
+                    integrity = (current.integrity + integrityGain).coerceAtMost(100),
+                    doneStreak = nextDoneStreak,
+                    snoozeStreak = 0
+                )
+            }
+            "snoozed" -> {
+                val nextSnoozeStreak = current.snoozeStreak + 1
+                val clarityLoss = 10 + (nextSnoozeStreak - 1).coerceAtMost(3) * 2
+                val integrityLoss = when (nextSnoozeStreak) {
+                    1 -> 0
+                    2 -> 2
+                    3 -> 4
+                    else -> 6
+                }
+                MirrorState(
+                    clarity = (current.clarity - clarityLoss).coerceAtLeast(0),
+                    integrity = (current.integrity - integrityLoss).coerceAtLeast(0),
+                    doneStreak = 0,
+                    snoozeStreak = nextSnoozeStreak
+                )
+            }
+            "skipped" -> MirrorState(
+                clarity = (current.clarity - 18).coerceAtLeast(0),
+                integrity = (current.integrity - 8).coerceAtLeast(0),
+                doneStreak = 0,
+                snoozeStreak = current.snoozeStreak + 2
+            )
+            else -> current
+        }
+        val json = JSONObject()
+            .put("clarity", next.clarity)
+            .put("integrity", next.integrity)
+            .put("doneStreak", next.doneStreak)
+            .put("snoozeStreak", next.snoozeStreak)
+        p.edit().putString("mirror_state", json.toString()).apply()
     }
 
     fun setActivePayload(value: PromptPayload?) { p.edit().apply { if (value == null) remove("active_payload") else putString("active_payload", payloadJson(value).toString()) }.apply() }
