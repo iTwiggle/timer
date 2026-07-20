@@ -43,6 +43,17 @@ class PromptPlaybackService : Service() {
         return Notification.Builder(this,CHANNEL).setSmallIcon(android.R.drawable.ic_lock_idle_alarm).setContentTitle("AMBUSH · ${payload.audioCategory.uppercase()}").setContentText(payload.message).setSubText(payload.audioLabel).setStyle(Notification.BigTextStyle().bigText(payload.message)).setContentIntent(open).setOngoing(true)
             .addAction(Notification.Action.Builder(null,"DONE",done).build()).addAction(Notification.Action.Builder(null,secondaryLabel,secondary).build()).build()
     }
-    private fun finishPrompt(outcome: String,preserveRetry:Boolean=false) { player?.stop(); player?.release(); player=null; val prefs=AppPrefs(this); prefs.completeActiveEvent(outcome); prefs.setActivePayload(null); prefs.clearActiveRetry(); if(!preserveRetry)prefs.clearRetryPayload(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+    private fun finishPrompt(outcome: String,preserveRetry:Boolean=false) {
+        player?.stop(); player?.release(); player=null
+        val prefs=AppPrefs(this)
+        val hadActivePrompt=prefs.activePayload()!=null
+        prefs.completeActiveEvent(outcome)
+        if(hadActivePrompt)prefs.applyMirrorOutcome(outcome)
+        prefs.setActivePayload(null)
+        prefs.clearActiveRetry()
+        if(!preserveRetry)prefs.clearRetryPayload()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
     override fun onDestroy() { player?.release(); super.onDestroy() }
 }
