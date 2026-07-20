@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     private var clips = mutableListOf<Clip>()
     private var textPrompts = mutableListOf<TextPrompt>()
     private var revealedAlarmAt: Long? = null
+    private var lastAnimatedMirrorMarkId: String? = null
     private val green = Color.rgb(31, 107, 79)
     private val paper = Color.rgb(251, 252, 248)
     private val pickAudio = 41
@@ -140,16 +141,22 @@ class MainActivity : Activity() {
         drawDeck()
         drawTextDeck()
         drawVerdict()
-        drawHistory()
     }
 
     private fun drawAccountabilityMirror() {
         val state = prefs.mirrorState()
+        val marks = prefs.recentMirrorMarks()
+        val newest = marks.firstOrNull()
+        val animateId = newest?.takeIf {
+            it.id != lastAnimatedMirrorMarkId && it.respondedAt > System.currentTimeMillis() - 8_000
+        }?.id
+        if (animateId != null) lastAnimatedMirrorMarkId = animateId
+
         val panel = card()
         panel.addView(text("ACCOUNTABILITY MIRROR", 11f, true))
         panel.addView(section("The mirror remembers."))
         panel.addView(AccountabilityMirrorView(this).apply {
-            mirrorState = state
+            setMirrorContent(state, marks, animateId)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330))
         })
         panel.addView(text("Clarity ${state.clarity}% · Integrity ${state.integrity}%", 12f, true))
@@ -282,20 +289,9 @@ class MainActivity : Activity() {
         root.addView(panel); root.addView(spacer())
     }
 
-    private fun drawHistory() {
-        val panel = card(); panel.addView(section("Recent prompts")); val history = prefs.history()
-        if (history.length() == 0) panel.addView(text("No prompts yet."))
-        for (i in 0 until minOf(history.length(), 8)) {
-            val item = history.getJSONObject(i); val outcome = item.optString("outcome")
-            val icon = if (outcome == "done") "✓" else if (outcome == "snoozed") "↻" else if (outcome == "skipped") "×" else "♪"
-            panel.addView(text("$icon  ${item.optString("audioLabel","Prompt")} · ${item.optString("messageCategory","Mindset")} · $outcome"))
-        }
-        panel.addView(button("Clear history", false) { prefs.clearHistory(); draw() }); root.addView(panel)
-    }
-
     private fun sendService(action: String) {
         startService(Intent(this, PromptPlaybackService::class.java).setAction(action))
-        root.postDelayed({ if (!isFinishing) draw() }, 250)
+        root.postDelayed({ if (!isFinishing) draw() }, 300)
     }
 
     @Deprecated("Legacy picker retained to avoid an additional UI dependency")
