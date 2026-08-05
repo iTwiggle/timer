@@ -1,26 +1,33 @@
 package com.itwiggle.randomchime
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PathMeasure
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.View
+import android.view.animation.DecelerateInterpolator
+import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.math.min
 
 class AccountabilityMirrorView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-    var mirrorState: MirrorState = MirrorState()
-        set(value) {
-            field = value
-            contentDescription = "Accountability Mirror. Clarity ${value.clarity} percent. Integrity ${value.integrity} percent."
-            invalidate()
-        }
+    private var mirrorState: MirrorState = MirrorState()
+    private var marks: List<MirrorMark> = emptyList()
+    private var animatedMarkId: String? = null
+    private var animationProgress = 1f
+    private var animator: ValueAnimator? = null
 
     private val density = resources.displayMetrics.density
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -29,8 +36,62 @@ class AccountabilityMirrorView @JvmOverloads constructor(
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
+    private val cursiveTypeface = Typeface.create("cursive", Typeface.ITALIC)
+    private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+
+    private data class PlacedMark(
+        val mark: MirrorMark,
+        val slot: RectF,
+        val rotation: Float
+    )
 
     private fun dp(value: Float) = value * density
+
+    fun setMirrorContent(
+        state: MirrorState,
+        recentMarks: List<MirrorMark>,
+        animateMarkId: String? = null
+    ) {
+        mirrorState = state
+        marks = recentMarks
+        animatedMarkId = animateMarkId?.takeIf { id -> recentMarks.any { it.id == id } }
+        animationProgress = if (animatedMarkId == null) 1f else 0f
+        updateContentDescription()
+        startMarkAnimation()
+        invalidate()
+    }
+
+    private fun updateContentDescription() {
+        val done = marks.count { it.isDone }
+        val skipped = marks.size - done
+        contentDescription =
+            "Accountability Mirror. Clarity ${mirrorState.clarity} percent. " +
+                "Integrity ${mirrorState.integrity} percent. $done completed marks and $skipped skipped marks visible."
+    }
+
+    private fun startMarkAnimation() {
+        animator?.cancel()
+        val id = animatedMarkId ?: return
+        val mark = marks.firstOrNull { it.id == id } ?: return
+        animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = if (mark.isDone) 560L else 1180L
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                animationProgress = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        animator?.cancel()
+        super.onDetachedFromWindow()
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val desiredWidth = dp(280f).toInt()
@@ -44,7 +105,12 @@ class AccountabilityMirrorView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val outer = RectF(dp(8f), dp(8f), width - dp(8f), height - dp(8f))
-        val inner = RectF(outer.left + dp(12f), outer.top + dp(12f), outer.right - dp(12f), outer.bottom - dp(12f))
+        val inner = RectF(
+            outer.left + dp(12f),
+            outer.top + dp(12f),
+            outer.right - dp(12f),
+            outer.bottom - dp(12f)
+        )
 
         paint.style = Paint.Style.FILL
         paint.color = Color.rgb(38, 34, 30)
@@ -53,11 +119,13 @@ class AccountabilityMirrorView @JvmOverloads constructor(
         paint.color = Color.rgb(193, 203, 199)
         canvas.drawRoundRect(inner, dp(10f), dp(10f), paint)
 
-        val clip = Path().apply { addRoundRect(inner, dp(10f), dp(10f), Path.Direction.CW) }
+        val clip = Path().apply {
+            addRoundRect(inner, dp(10f), dp(10f), Path.Direction.CW)
+        }
         canvas.save()
         canvas.clipPath(clip)
         drawReflection(canvas, inner)
-        drawFog(canvas, inner)
+        drawMirrorSurface(canvas, inner)
         drawStructuralDamage(canvas, inner)
         canvas.restore()
 
@@ -85,16 +153,30 @@ class AccountabilityMirrorView @JvmOverloads constructor(
             strokeWidth = dp(3f)
             strokeCap = Paint.Cap.ROUND
         }
-        val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(95, 20, 14, 12) }
+        val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(95, 20, 14, 12)
+        }
 
         val headTop = bounds.top + bounds.height() * 0.12f
         val head = RectF(cx - dp(31f), headTop, cx + dp(31f), headTop + dp(68f))
         canvas.drawOval(head, skin)
-        canvas.drawOval(RectF(head.left - dp(5f), head.centerY() - dp(8f), head.left + dp(5f), head.centerY() + dp(10f)), skin)
-        canvas.drawOval(RectF(head.right - dp(5f), head.centerY() - dp(8f), head.right + dp(5f), head.centerY() + dp(10f)), skin)
+        canvas.drawOval(
+            RectF(head.left - dp(5f), head.centerY() - dp(8f), head.left + dp(5f), head.centerY() + dp(10f)),
+            skin
+        )
+        canvas.drawOval(
+            RectF(head.right - dp(5f), head.centerY() - dp(8f), head.right + dp(5f), head.centerY() + dp(10f)),
+            skin
+        )
 
         paint.color = Color.rgb(26, 20, 18)
-        canvas.drawArc(RectF(head.left, head.top - dp(4f), head.right, head.bottom - dp(18f)), 185f, 170f, true, paint)
+        canvas.drawArc(
+            RectF(head.left, head.top - dp(4f), head.right, head.bottom - dp(18f)),
+            185f,
+            170f,
+            true,
+            paint
+        )
 
         val neck = RectF(cx - dp(18f), head.bottom - dp(5f), cx + dp(18f), head.bottom + dp(32f))
         canvas.drawRoundRect(neck, dp(8f), dp(8f), skin)
@@ -103,11 +185,25 @@ class AccountabilityMirrorView @JvmOverloads constructor(
         val torsoBottom = baseY
         val torso = Path().apply {
             moveTo(cx - dp(19f), torsoTop)
-            cubicTo(cx - dp(58f), torsoTop + dp(2f), cx - dp(86f), torsoTop + dp(34f), cx - dp(72f), torsoTop + dp(78f))
+            cubicTo(
+                cx - dp(58f),
+                torsoTop + dp(2f),
+                cx - dp(86f),
+                torsoTop + dp(34f),
+                cx - dp(72f),
+                torsoTop + dp(78f)
+            )
             lineTo(cx - dp(50f), torsoBottom)
             lineTo(cx + dp(50f), torsoBottom)
             lineTo(cx + dp(72f), torsoTop + dp(78f))
-            cubicTo(cx + dp(86f), torsoTop + dp(34f), cx + dp(58f), torsoTop + dp(2f), cx + dp(19f), torsoTop)
+            cubicTo(
+                cx + dp(86f),
+                torsoTop + dp(34f),
+                cx + dp(58f),
+                torsoTop + dp(2f),
+                cx + dp(19f),
+                torsoTop
+            )
             close()
         }
         canvas.drawPath(torso, skin)
@@ -123,22 +219,68 @@ class AccountabilityMirrorView @JvmOverloads constructor(
         canvas.drawLine(cx - dp(50f), torsoTop + dp(27f), cx - dp(12f), torsoTop + dp(49f), highlight)
         canvas.drawLine(cx + dp(50f), torsoTop + dp(27f), cx + dp(12f), torsoTop + dp(49f), highlight)
         canvas.drawLine(cx, torsoTop + dp(68f), cx, torsoBottom - dp(18f), highlight)
-        canvas.drawArc(RectF(cx - dp(27f), torsoTop + dp(82f), cx - dp(2f), torsoTop + dp(116f)), 250f, 130f, false, highlight)
-        canvas.drawArc(RectF(cx + dp(2f), torsoTop + dp(82f), cx + dp(27f), torsoTop + dp(116f)), 160f, 130f, false, highlight)
+        canvas.drawArc(
+            RectF(cx - dp(27f), torsoTop + dp(82f), cx - dp(2f), torsoTop + dp(116f)),
+            250f,
+            130f,
+            false,
+            highlight
+        )
+        canvas.drawArc(
+            RectF(cx + dp(2f), torsoTop + dp(82f), cx + dp(27f), torsoTop + dp(116f)),
+            160f,
+            130f,
+            false,
+            highlight
+        )
 
         linePaint.color = Color.argb(90, 19, 14, 12)
         linePaint.strokeWidth = dp(2f)
-        canvas.drawLine(head.centerX() - dp(9f), head.centerY() + dp(12f), head.centerX() + dp(9f), head.centerY() + dp(12f), linePaint)
-        canvas.drawLine(head.centerX() - dp(13f), head.centerY() - dp(5f), head.centerX() - dp(5f), head.centerY() - dp(5f), linePaint)
-        canvas.drawLine(head.centerX() + dp(5f), head.centerY() - dp(5f), head.centerX() + dp(13f), head.centerY() - dp(5f), linePaint)
+        canvas.drawLine(
+            head.centerX() - dp(9f),
+            head.centerY() + dp(12f),
+            head.centerX() + dp(9f),
+            head.centerY() + dp(12f),
+            linePaint
+        )
+        canvas.drawLine(
+            head.centerX() - dp(13f),
+            head.centerY() - dp(5f),
+            head.centerX() - dp(5f),
+            head.centerY() - dp(5f),
+            linePaint
+        )
+        canvas.drawLine(
+            head.centerX() + dp(5f),
+            head.centerY() - dp(5f),
+            head.centerX() + dp(13f),
+            head.centerY() - dp(5f),
+            linePaint
+        )
 
         canvas.restore()
     }
 
-    private fun drawFog(canvas: Canvas, bounds: RectF) {
+    private fun drawMirrorSurface(canvas: Canvas, bounds: RectF) {
+        val placements = layoutMarks(bounds)
         val fog = (100 - mirrorState.clarity) / 100f
-        if (fog <= 0.01f) return
+        val fingerMedium = mirrorState.clarity < 72
 
+        if (fog > 0.01f) {
+            val layer = canvas.saveLayer(bounds, null)
+            drawFogLayer(canvas, bounds, fog)
+            if (fingerMedium) drawMarks(canvas, placements, Medium.FINGER)
+            canvas.restoreToCount(layer)
+        }
+
+        if (fingerMedium) {
+            drawFingerRims(canvas, placements, fog)
+        } else {
+            drawMarks(canvas, placements, Medium.LIPSTICK)
+        }
+    }
+
+    private fun drawFogLayer(canvas: Canvas, bounds: RectF, fog: Float) {
         paint.style = Paint.Style.FILL
         paint.color = Color.argb((35 + fog * 165).toInt(), 225, 233, 232)
         canvas.drawRect(bounds, paint)
@@ -168,9 +310,193 @@ class AccountabilityMirrorView @JvmOverloads constructor(
         repeat(streakCount) { index ->
             val x = bounds.left + bounds.width() * ((index + 1f) / (streakCount + 1f))
             val top = bounds.top + bounds.height() * (0.06f + (index % 3) * 0.07f)
-            canvas.drawLine(x, top, x - dp(3f), top + bounds.height() * (0.16f + (index % 2) * 0.08f), linePaint)
+            canvas.drawLine(
+                x,
+                top,
+                x - dp(3f),
+                top + bounds.height() * (0.16f + (index % 2) * 0.08f),
+                linePaint
+            )
             canvas.drawCircle(x, top, dp(3f + (index % 2)), paint)
         }
+    }
+
+    private enum class Medium { FINGER, LIPSTICK }
+
+    private fun drawMarks(canvas: Canvas, placements: List<PlacedMark>, medium: Medium) {
+        placements.forEach { placed ->
+            val progress =
+                if (placed.mark.id == animatedMarkId) animationProgress.coerceIn(0f, 1f) else 1f
+            canvas.save()
+            canvas.rotate(placed.rotation, placed.slot.centerX(), placed.slot.centerY())
+            if (placed.mark.isDone) {
+                drawCheck(canvas, placed.slot, progress, medium)
+            } else {
+                drawSkipped(canvas, placed.slot, progress, medium)
+            }
+            canvas.restore()
+        }
+    }
+
+    private fun drawCheck(canvas: Canvas, slot: RectF, progress: Float, medium: Medium) {
+        val width = min(slot.width() * 0.58f, dp(52f))
+        val height = min(slot.height() * 0.52f, dp(38f))
+        val left = slot.centerX() - width / 2f
+        val top = slot.centerY() - height / 2f
+        val path = Path().apply {
+            moveTo(left, top + height * 0.52f)
+            lineTo(left + width * 0.31f, top + height)
+            cubicTo(
+                left + width * 0.48f,
+                top + height * 0.74f,
+                left + width * 0.72f,
+                top + height * 0.28f,
+                left + width,
+                top
+            )
+        }
+        val segment = Path()
+        val measure = PathMeasure(path, false)
+        measure.getSegment(0f, measure.length * progress, segment, true)
+
+        val targetPaint = if (medium == Medium.FINGER) clearPaint else linePaint
+        targetPaint.style = Paint.Style.STROKE
+        targetPaint.strokeWidth = if (medium == Medium.FINGER) dp(7.5f) else dp(3.4f)
+        if (medium == Medium.LIPSTICK) {
+            targetPaint.color = Color.argb(220, 137, 30, 62)
+        }
+        canvas.drawPath(segment, targetPaint)
+    }
+
+    private fun drawSkipped(canvas: Canvas, slot: RectF, progress: Float, medium: Medium) {
+        val targetPaint = if (medium == Medium.FINGER) clearPaint else paint
+        targetPaint.style = Paint.Style.FILL
+        targetPaint.typeface = cursiveTypeface
+        targetPaint.textSize = skippedTextSize(slot, targetPaint)
+        if (medium == Medium.LIPSTICK) {
+            targetPaint.color = Color.argb(215, 137, 30, 62)
+        }
+
+        val metrics = targetPaint.fontMetrics
+        val baseline = slot.centerY() - (metrics.ascent + metrics.descent) / 2f
+        val textWidth = targetPaint.measureText("skipped")
+        val left = slot.centerX() - textWidth / 2f
+
+        canvas.save()
+        canvas.clipRect(
+            slot.left,
+            slot.top,
+            slot.left + slot.width() * progress.coerceIn(0f, 1f),
+            slot.bottom
+        )
+        canvas.drawText("skipped", left, baseline, targetPaint)
+        canvas.restore()
+    }
+
+    private fun skippedTextSize(slot: RectF, targetPaint: Paint): Float {
+        val preferred = min(dp(27f), slot.height() * 0.46f)
+        targetPaint.textSize = preferred
+        val width = targetPaint.measureText("skipped").coerceAtLeast(1f)
+        return preferred * min(1f, slot.width() * 0.9f / width)
+    }
+
+    private fun drawFingerRims(canvas: Canvas, placements: List<PlacedMark>, fog: Float) {
+        if (fog <= 0.02f) return
+        placements.forEach { placed ->
+            val progress =
+                if (placed.mark.id == animatedMarkId) animationProgress.coerceIn(0f, 1f) else 1f
+            canvas.save()
+            canvas.rotate(placed.rotation, placed.slot.centerX(), placed.slot.centerY())
+            if (placed.mark.isDone) {
+                val width = min(placed.slot.width() * 0.58f, dp(52f))
+                val height = min(placed.slot.height() * 0.52f, dp(38f))
+                val left = placed.slot.centerX() - width / 2f
+                val top = placed.slot.centerY() - height / 2f
+                val path = Path().apply {
+                    moveTo(left, top + height * 0.52f)
+                    lineTo(left + width * 0.31f, top + height)
+                    cubicTo(
+                        left + width * 0.48f,
+                        top + height * 0.74f,
+                        left + width * 0.72f,
+                        top + height * 0.28f,
+                        left + width,
+                        top
+                    )
+                }
+                val segment = Path()
+                val measure = PathMeasure(path, false)
+                measure.getSegment(0f, measure.length * progress, segment, true)
+                linePaint.style = Paint.Style.STROKE
+                linePaint.strokeWidth = dp(1.1f)
+                linePaint.color = Color.argb((40 + fog * 55).toInt(), 255, 255, 255)
+                canvas.drawPath(segment, linePaint)
+            } else {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = dp(1f)
+                paint.typeface = cursiveTypeface
+                paint.textSize = skippedTextSize(placed.slot, paint)
+                paint.color = Color.argb((36 + fog * 48).toInt(), 255, 255, 255)
+                val metrics = paint.fontMetrics
+                val baseline = placed.slot.centerY() - (metrics.ascent + metrics.descent) / 2f
+                val textWidth = paint.measureText("skipped")
+                val left = placed.slot.centerX() - textWidth / 2f
+                canvas.save()
+                canvas.clipRect(
+                    placed.slot.left,
+                    placed.slot.top,
+                    placed.slot.left + placed.slot.width() * progress,
+                    placed.slot.bottom
+                )
+                canvas.drawText("skipped", left, baseline, paint)
+                canvas.restore()
+            }
+            canvas.restore()
+        }
+    }
+
+    private fun layoutMarks(bounds: RectF): List<PlacedMark> {
+        if (marks.isEmpty()) return emptyList()
+
+        val targetArea = dp(104f) * dp(72f)
+        val capacity = ((bounds.width() * bounds.height()) / targetArea)
+            .toInt()
+            .coerceIn(5, 14)
+        val visible = marks.take(capacity)
+        val columns = if (capacity <= 6 || bounds.width() < dp(235f)) 2 else 3
+        val rows = ceil(capacity / columns.toFloat()).toInt()
+        val cellWidth = bounds.width() / columns
+        val cellHeight = bounds.height() / rows
+        val slots = mutableListOf<RectF>()
+
+        repeat(rows) { row ->
+            repeat(columns) { column ->
+                if (slots.size >= capacity) return@repeat
+                slots += RectF(
+                    bounds.left + column * cellWidth + dp(5f),
+                    bounds.top + row * cellHeight + dp(5f),
+                    bounds.left + (column + 1) * cellWidth - dp(5f),
+                    bounds.top + (row + 1) * cellHeight - dp(5f)
+                )
+            }
+        }
+
+        val used = BooleanArray(slots.size)
+        val placed = mutableListOf<PlacedMark>()
+        visible.reversed().forEach { mark ->
+            val seed = mark.id.hashCode() and Int.MAX_VALUE
+            var slotIndex = seed % slots.size
+            while (used[slotIndex]) slotIndex = (slotIndex + 1) % slots.size
+            used[slotIndex] = true
+
+            val source = slots[slotIndex]
+            val offsetX = (((seed / 17) % 13) - 6) / 100f * source.width()
+            val offsetY = (((seed / 31) % 11) - 5) / 100f * source.height()
+            val slot = RectF(source).apply { offset(offsetX, offsetY) }
+            val rotation = (((seed / 47) % 17) - 8).toFloat()
+            placed += PlacedMark(mark, slot, rotation)
+        }
+        return placed
     }
 
     private fun drawStructuralDamage(canvas: Canvas, bounds: RectF) {
@@ -185,7 +511,9 @@ class AccountabilityMirrorView @JvmOverloads constructor(
             RectF(bounds.left - dp(20f), bounds.bottom - dp(92f), bounds.left + dp(52f), bounds.bottom + dp(10f)),
             RectF(bounds.right - dp(54f), bounds.bottom - dp(68f), bounds.right + dp(16f), bounds.bottom + dp(12f))
         )
-        spots.take((1 + damage / 24).coerceAtMost(spots.size)).forEach { canvas.drawOval(it, paint) }
+        spots.take((1 + damage / 24).coerceAtMost(spots.size)).forEach {
+            canvas.drawOval(it, paint)
+        }
 
         if (damage < 10) return
         linePaint.color = Color.argb((95 + damage).coerceAtMost(210), 36, 39, 38)

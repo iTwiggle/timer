@@ -8,6 +8,7 @@ import java.util.UUID
 data class Clip(val uri: String, var name: String, var category: String = "Motivation", var enabled: Boolean = true)
 data class TextPrompt(val id: String, var text: String, var category: String = "Mindset", var intensity: String = "firm", var enabled: Boolean = true)
 data class PromptPayload(val audioUri: String?, val audioLabel: String, val audioCategory: String, val textId: String, val message: String, val messageCategory: String)
+data class MirrorMark(val id: String, val isDone: Boolean, val respondedAt: Long)
 data class MirrorState(
     val clarity: Int = 32,
     val integrity: Int = 100,
@@ -31,6 +32,7 @@ class AppPrefs(context: Context) {
             j.optInt("volume", 70), j.optBoolean("vibrate", true), j.optBoolean("shuffle", true),
             j.optJSONArray("days")?.let { a -> (0 until a.length()).map { a.getInt(it) }.toSet() } ?: (1..7).toSet(), j.optBoolean("armed", false))
     }
+
     fun save(s: Settings) {
         val j = JSONObject().put("start", s.start).put("end", s.end).put("exactMode", s.exactMode).put("exactCount", s.exactCount)
             .put("minCount", s.minCount).put("maxCount", s.maxCount).put("minGap", s.minGap).put("volume", s.volume)
@@ -42,10 +44,12 @@ class AppPrefs(context: Context) {
         val a = JSONArray(p.getString("clips", "[]"))
         return (0 until a.length()).map { a.getJSONObject(it) }.map { Clip(it.getString("uri"), it.optString("name", "Prompt"), it.optString("category", "Motivation"), it.optBoolean("enabled", true)) }.toMutableList()
     }
+
     fun saveClips(items: List<Clip>) {
         val a = JSONArray(); items.forEach { a.put(JSONObject().put("uri", it.uri).put("name", it.name).put("category", it.category).put("enabled", it.enabled)) }
         p.edit().putString("clips", a.toString()).apply()
     }
+
     fun nextClip(): Clip? {
         val enabled = clips().filter { it.enabled }; if (enabled.isEmpty()) return null; if (!settings().shuffle) return enabled.random()
         var ids = jsonStrings("audio_deck").filter { id -> enabled.any { it.uri == id } }.toMutableList()
@@ -67,18 +71,22 @@ class AppPrefs(context: Context) {
         TextPrompt("default-11", "You do not need to feel ready.", "Momentum", "supportive"),
         TextPrompt("default-12", "Merry Christmas, motherfucker. Get moving.", "Chaos", "unhinged")
     )
+
     fun textPrompts(): MutableList<TextPrompt> {
         val raw = p.getString("text_prompts", null) ?: return defaults.map { it.copy() }.toMutableList().also { saveTextPrompts(it) }
         val a = JSONArray(raw); return (0 until a.length()).map { a.getJSONObject(it) }.map { TextPrompt(it.getString("id"), it.getString("text"), it.optString("category", "Mindset"), it.optString("intensity", "firm"), it.optBoolean("enabled", true)) }.toMutableList()
     }
+
     fun saveTextPrompts(items: List<TextPrompt>) {
         val a = JSONArray(); items.forEach { a.put(JSONObject().put("id", it.id).put("text", it.text).put("category", it.category).put("intensity", it.intensity).put("enabled", it.enabled)) }
         p.edit().putString("text_prompts", a.toString()).apply()
     }
+
     fun addTextPrompts(lines: List<String>) {
         val items = textPrompts(); lines.map { it.trim() }.filter { it.isNotBlank() }.forEach { text -> if (items.none { it.text.equals(text, true) }) items.add(TextPrompt(UUID.randomUUID().toString(), text)) }
         saveTextPrompts(items)
     }
+
     fun nextTextPrompt(): TextPrompt {
         val enabled = textPrompts().filter { it.enabled }.ifEmpty { defaults }
         var ids = jsonStrings("text_deck").filter { id -> enabled.any { it.id == id } }.toMutableList()
@@ -94,6 +102,24 @@ class AppPrefs(context: Context) {
             doneStreak = j.optInt("doneStreak", 0).coerceAtLeast(0),
             snoozeStreak = j.optInt("snoozeStreak", 0).coerceAtLeast(0)
         )
+    }
+
+    fun recentMirrorMarks(maxCount: Int = 24): List<MirrorMark> {
+        val events = history()
+        val result = mutableListOf<MirrorMark>()
+        for (index in 0 until events.length()) {
+            val event = events.getJSONObject(index)
+            val outcome = event.optString("outcome")
+            if (outcome == "done" || outcome == "snoozed" || outcome == "skipped") {
+                result += MirrorMark(
+                    id = event.optString("id", "event-$index"),
+                    isDone = outcome == "done",
+                    respondedAt = event.optLong("respondedAt", 0L)
+                )
+                if (result.size >= maxCount) break
+            }
+        }
+        return result
     }
 
     fun applyMirrorOutcome(outcome: String) {
@@ -159,11 +185,13 @@ class AppPrefs(context: Context) {
         val events = history(); val next = JSONArray().put(event); for (i in 0 until minOf(events.length(), 499)) next.put(events.getJSONObject(i))
         p.edit().putString("events", next.toString()).putString("active_event_id", id).apply(); return id
     }
+
     fun completeActiveEvent(outcome: String) {
         val id = p.getString("active_event_id", null) ?: return; val events = history()
         for (i in 0 until events.length()) { val event = events.getJSONObject(i); if (event.optString("id") == id) { event.put("outcome", outcome).put("respondedAt", System.currentTimeMillis()).put("responseLatencyMs", System.currentTimeMillis() - event.optLong("firedAt")); break } }
         p.edit().putString("events", events.toString()).remove("active_event_id").apply()
     }
+
     fun history(): JSONArray = JSONArray(p.getString("events", "[]"))
     fun clearHistory() { p.edit().remove("events").remove("active_event_id").apply() }
 
