@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     private var clips = mutableListOf<Clip>()
     private var textPrompts = mutableListOf<TextPrompt>()
     private var revealedAlarmAt: Long? = null
+    private var lastAnimatedMirrorMarkId: String? = null
     private val green = Color.rgb(31, 107, 79)
     private val paper = Color.rgb(251, 252, 248)
     private val pickAudio = 41
@@ -134,12 +135,42 @@ class MainActivity : Activity() {
         root.addView(text("RANDOM CHIME", 11f, true))
         root.addView(text("Let the day surprise you.", 30f, true))
         root.addView(spacer())
+        drawAccountabilityMirror()
         drawStatus()
         drawSchedule()
         drawDeck()
         drawTextDeck()
         drawVerdict()
-        drawHistory()
+    }
+
+    private fun drawAccountabilityMirror() {
+        val state = prefs.mirrorState()
+        val marks = prefs.recentMirrorMarks()
+        val newest = marks.firstOrNull()
+        val animateId = newest?.takeIf {
+            it.id != lastAnimatedMirrorMarkId && it.respondedAt > System.currentTimeMillis() - 8_000
+        }?.id
+        if (animateId != null) lastAnimatedMirrorMarkId = animateId
+
+        val panel = card()
+        panel.addView(text("ACCOUNTABILITY MIRROR", 11f, true))
+        panel.addView(section("The mirror remembers."))
+        panel.addView(AccountabilityMirrorView(this).apply {
+            setMirrorContent(state, marks, animateId)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330))
+        })
+        panel.addView(text("Clarity ${state.clarity}% · Integrity ${state.integrity}%", 12f, true))
+        val message = when {
+            state.integrity < 35 -> "The reflection is still there. The surface between you and it is failing."
+            state.integrity < 70 -> "Repeated avoidance is reaching deeper than the fog."
+            state.clarity < 25 -> "Condensation wins when resolve goes unfed."
+            state.clarity < 60 -> "You can see enough to know what is waiting behind the excuses."
+            state.clarity < 90 -> "Follow-through is clearing the view. Keep feeding it."
+            else -> "No distortion. No negotiation. Just the truth in front of you."
+        }
+        panel.addView(text(message, 12f))
+        root.addView(panel)
+        root.addView(spacer())
     }
 
     private fun drawStatus() {
@@ -252,24 +283,16 @@ class MainActivity : Activity() {
         val payload = prefs.activePayload() ?: return
         val panel = card().apply { gravity = Gravity.CENTER }
         panel.addView(text("THE VOICE HAS SPOKEN", 11f, true)); panel.addView(text("So—did you do it?", 27f, true)); panel.addView(text(payload.message,18f,true)); panel.addView(text("${payload.audioCategory} · ${payload.audioLabel}",12f))
-        panel.addView(button("✓ DONE") { sendService(PromptPlaybackService.DONE); draw() })
-        if (prefs.activeIsRetry()) panel.addView(button("Skip it — motivation wins this round", false) { sendService(PromptPlaybackService.SKIP); draw() })
-        else panel.addView(button("Snooze 10 min — excuses > motivation", false) { sendService(PromptPlaybackService.SNOOZE); draw() })
+        panel.addView(button("✓ DONE") { sendService(PromptPlaybackService.DONE) })
+        if (prefs.activeIsRetry()) panel.addView(button("Skip it — motivation wins this round", false) { sendService(PromptPlaybackService.SKIP) })
+        else panel.addView(button("Snooze 10 min — excuses > motivation", false) { sendService(PromptPlaybackService.SNOOZE) })
         root.addView(panel); root.addView(spacer())
     }
 
-    private fun drawHistory() {
-        val panel = card(); panel.addView(section("Recent prompts")); val history = prefs.history()
-        if (history.length() == 0) panel.addView(text("No prompts yet."))
-        for (i in 0 until minOf(history.length(), 8)) {
-            val item = history.getJSONObject(i); val outcome = item.optString("outcome")
-            val icon = if (outcome == "done") "✓" else if (outcome == "snoozed") "↻" else if (outcome == "skipped") "×" else "♪"
-            panel.addView(text("$icon  ${item.optString("audioLabel","Prompt")} · ${item.optString("messageCategory","Mindset")} · $outcome"))
-        }
-        panel.addView(button("Clear history", false) { prefs.clearHistory(); draw() }); root.addView(panel)
+    private fun sendService(action: String) {
+        startService(Intent(this, PromptPlaybackService::class.java).setAction(action))
+        root.postDelayed({ if (!isFinishing) draw() }, 300)
     }
-
-    private fun sendService(action: String) { startService(Intent(this, PromptPlaybackService::class.java).setAction(action)) }
 
     @Deprecated("Legacy picker retained to avoid an additional UI dependency")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
