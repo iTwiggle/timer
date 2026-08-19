@@ -1,5 +1,7 @@
 package com.itwiggle.randomchime
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
@@ -13,10 +15,12 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.View
+import android.view.HapticFeedbackConstants
 import android.view.animation.DecelerateInterpolator
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 
 class AccountabilityMirrorView @JvmOverloads constructor(
     context: Context,
@@ -24,10 +28,14 @@ class AccountabilityMirrorView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     private var mirrorState: MirrorState = MirrorState()
+    private var targetMirrorState: MirrorState = MirrorState()
     private var marks: List<MirrorMark> = emptyList()
     private var animatedMarkId: String? = null
+    private var transitionOutcome: String? = null
+    private var transitionProgress = 1f
     private var animationProgress = 1f
     private var animator: ValueAnimator? = null
+    private var animationWasCancelled = false
 
     private val density = resources.displayMetrics.density
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -54,14 +62,18 @@ class AccountabilityMirrorView @JvmOverloads constructor(
     fun setMirrorContent(
         state: MirrorState,
         recentMarks: List<MirrorMark>,
-        animateMarkId: String? = null
+        transition: MirrorTransition? = null,
+        onAnimationFinished: (() -> Unit)? = null
     ) {
-        mirrorState = state
+        targetMirrorState = state
+        mirrorState = transition?.from ?: state
         marks = recentMarks
-        animatedMarkId = animateMarkId?.takeIf { id -> recentMarks.any { it.id == id } }
+        animatedMarkId = transition?.markId?.takeIf { id -> recentMarks.any { it.id == id } }
+        transitionOutcome = transition?.outcome
+        transitionProgress = if (animatedMarkId == null) 1f else 0f
         animationProgress = if (animatedMarkId == null) 1f else 0f
         updateContentDescription()
-        startMarkAnimation()
+        startMirrorAnimation(transition, onAnimationFinished)
         invalidate()
     }
 
@@ -73,20 +85,74 @@ class AccountabilityMirrorView @JvmOverloads constructor(
                 "Integrity ${mirrorState.integrity} percent. $done completed marks and $skipped skipped marks visible."
     }
 
-    private fun startMarkAnimation() {
+    private fun startMirrorAnimation(
+        transition: MirrorTransition?,
+        onAnimationFinished: (() -> Unit)?
+    ) {
         animator?.cancel()
         val id = animatedMarkId ?: return
         val mark = marks.firstOrNull { it.id == id } ?: return
+        val from = transition?.from ?: return
+        val to = transition.to
+        val outcome = transition.outcome
+        animationWasCancelled = false
         animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = if (mark.isDone) 560L else 1180L
+            duration = when (outcome) {
+                "done" -> 1_650L
+                "snoozed" -> 1_350L
+                "skipped" -> 950L
+                else -> if (mark.isDone) 1_400L else 1_150L
+            }
             interpolator = DecelerateInterpolator()
             addUpdateListener {
-                animationProgress = it.animatedValue as Float
+                val progress = it.animatedValue as Float
+                transitionProgress = progress
+                mirrorState = interpolateState(from, to, progress)
+                animationProgress = when (outcome) {
+                    "done" -> ((progress - 0.18f) / 0.62f).coerceIn(0f, 1f)
+                    "snoozed" -> ((progress - 0.42f) / 0.48f).coerceIn(0f, 1f)
+                    "skipped" -> ((progress - 0.14f) / 0.50f).coerceIn(0f, 1f)
+                    else -> progress
+                }
                 invalidate()
             }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationStart(animation: Animator) {
+                    post {
+                        performHapticFeedback(
+                            if (outcome == "skipped") HapticFeedbackConstants.LONG_PRESS
+                            else HapticFeedbackConstants.CLOCK_TICK
+                        )
+                    }
+                }
+
+                override fun onAnimationCancel(animation: Animator) {
+                    animationWasCancelled = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    if (animationWasCancelled) return
+                    mirrorState = to
+                    targetMirrorState = to
+                    transitionProgress = 1f
+                    animationProgress = 1f
+                    invalidate()
+                    onAnimationFinished?.invoke()
+                }
+            })
             start()
         }
     }
+
+    private fun interpolateState(from: MirrorState, to: MirrorState, progress: Float) = MirrorState(
+        clarity = lerp(from.clarity, to.clarity, progress),
+        integrity = lerp(from.integrity, to.integrity, progress),
+        doneStreak = if (progress < 1f) from.doneStreak else to.doneStreak,
+        snoozeStreak = if (progress < 1f) from.snoozeStreak else to.snoozeStreak
+    )
+
+    private fun lerp(from: Int, to: Int, progress: Float) =
+        (from + (to - from) * progress).toInt().coerceIn(0, 100)
 
     override fun onDetachedFromWindow() {
         animator?.cancel()
@@ -127,11 +193,49 @@ class AccountabilityMirrorView @JvmOverloads constructor(
         drawReflection(canvas, inner)
         drawMirrorSurface(canvas, inner)
         drawStructuralDamage(canvas, inner)
+        drawOutcomeMotion(canvas, inner)
         canvas.restore()
 
         linePaint.color = Color.argb(145, 255, 255, 255)
         linePaint.strokeWidth = dp(1.2f)
         canvas.drawRoundRect(inner, dp(10f), dp(10f), linePaint)
+    }
+
+    private fun drawOutcomeMotion(canvas: Canvas, bounds: RectF) {
+        val outcome = transitionOutcome ?: return
+        if (transitionProgress >= 1f) return
+        when (outcome) {
+            "done" -> {
+                val pulse = sin(Math.PI * transitionProgress).toFloat().coerceAtLeast(0f)
+                linePaint.style = Paint.Style.STROKE
+                linePaint.strokeWidth = dp(2.2f)
+                linePaint.color = Color.argb((pulse * 105).toInt(), 225, 247, 239)
+                val radius = bounds.width() * (0.12f + transitionProgress * 0.58f)
+                canvas.drawCircle(bounds.centerX(), bounds.centerY(), radius, linePaint)
+            }
+            "snoozed" -> {
+                val edgeY = bounds.top + bounds.height() * transitionProgress
+                paint.style = Paint.Style.FILL
+                paint.color = Color.argb(28, 225, 233, 232)
+                canvas.drawRect(bounds.left, bounds.top, bounds.right, edgeY, paint)
+                linePaint.style = Paint.Style.STROKE
+                linePaint.strokeWidth = dp(4f)
+                linePaint.color = Color.argb(75, 246, 250, 249)
+                canvas.drawLine(bounds.left, edgeY, bounds.right, edgeY, linePaint)
+            }
+            "skipped" -> {
+                val pulse = (1f - transitionProgress).coerceIn(0f, 1f)
+                paint.style = Paint.Style.FILL
+                paint.color = Color.argb((pulse * 85).toInt(), 74, 18, 25)
+                canvas.drawRect(bounds, paint)
+                linePaint.style = Paint.Style.STROKE
+                linePaint.strokeWidth = dp(2.4f)
+                linePaint.color = Color.argb((pulse * 180).toInt(), 88, 28, 34)
+                val reach = bounds.width() * min(0.34f, transitionProgress * 0.52f)
+                canvas.drawLine(bounds.centerX(), bounds.centerY(), bounds.centerX() - reach, bounds.top, linePaint)
+                canvas.drawLine(bounds.centerX(), bounds.centerY(), bounds.centerX() + reach, bounds.bottom, linePaint)
+            }
+        }
     }
 
     private fun drawReflection(canvas: Canvas, bounds: RectF) {
