@@ -31,7 +31,6 @@ class MainActivity : Activity() {
     private var clips = mutableListOf<Clip>()
     private var textPrompts = mutableListOf<TextPrompt>()
     private var revealedAlarmAt: Long? = null
-    private var lastAnimatedMirrorMarkId: String? = null
     private val green = Color.rgb(31, 107, 79)
     private val paper = Color.rgb(251, 252, 248)
     private val pickAudio = 41
@@ -45,7 +44,6 @@ class MainActivity : Activity() {
         clips = prefs.clips()
         textPrompts = prefs.textPrompts()
         requestNeededPermissions()
-        draw()
     }
 
     override fun onResume() {
@@ -146,17 +144,21 @@ class MainActivity : Activity() {
     private fun drawAccountabilityMirror() {
         val state = prefs.mirrorState()
         val marks = prefs.recentMirrorMarks()
-        val newest = marks.firstOrNull()
-        val animateId = newest?.takeIf {
-            it.id != lastAnimatedMirrorMarkId && it.respondedAt > System.currentTimeMillis() - 8_000
-        }?.id
-        if (animateId != null) lastAnimatedMirrorMarkId = animateId
+        val pendingTransition = prefs.pendingMirrorTransition()
+        val transition = pendingTransition?.takeIf { pending ->
+            marks.any { it.id == pending.markId }
+        }
+        if (pendingTransition != null && transition == null) {
+            prefs.consumeMirrorTransition(pendingTransition.markId)
+        }
 
         val panel = card()
         panel.addView(text("ACCOUNTABILITY MIRROR", 11f, true))
         panel.addView(section("The mirror remembers."))
         panel.addView(AccountabilityMirrorView(this).apply {
-            setMirrorContent(state, marks, animateId)
+            setMirrorContent(state, marks, transition) {
+                transition?.let { prefs.consumeMirrorTransition(it.markId) }
+            }
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330))
         })
         panel.addView(text("Clarity ${state.clarity}% · Integrity ${state.integrity}%", 12f, true))
