@@ -15,6 +15,12 @@ data class MirrorState(
     val doneStreak: Int = 0,
     val snoozeStreak: Int = 0
 )
+data class MirrorTransition(
+    val markId: String,
+    val outcome: String,
+    val from: MirrorState,
+    val to: MirrorState
+)
 data class Settings(
     var start: String = "09:00", var end: String = "21:00", var exactMode: Boolean = false,
     var exactCount: Int = 2, var minCount: Int = 1, var maxCount: Int = 3, var minGap: Int = 60,
@@ -165,8 +171,57 @@ class AppPrefs(context: Context) {
             .put("integrity", next.integrity)
             .put("doneStreak", next.doneStreak)
             .put("snoozeStreak", next.snoozeStreak)
-        p.edit().putString("mirror_state", json.toString()).apply()
+        val markId = recentMirrorMarks(1).firstOrNull()?.id
+        val transition = markId?.let {
+            JSONObject()
+                .put("markId", it)
+                .put("outcome", outcome)
+                .put("from", mirrorStateJson(current))
+                .put("to", mirrorStateJson(next))
+        }
+        p.edit()
+            .putString("mirror_state", json.toString())
+            .apply {
+                if (transition == null) remove("pending_mirror_transition")
+                else putString("pending_mirror_transition", transition.toString())
+            }
+            .apply()
     }
+
+    fun pendingMirrorTransition(): MirrorTransition? {
+        val raw = p.getString("pending_mirror_transition", null) ?: return null
+        return try {
+            val json = JSONObject(raw)
+            MirrorTransition(
+                markId = json.getString("markId"),
+                outcome = json.getString("outcome"),
+                from = parseMirrorState(json.getJSONObject("from")),
+                to = parseMirrorState(json.getJSONObject("to"))
+            )
+        } catch (_: Exception) {
+            p.edit().remove("pending_mirror_transition").apply()
+            null
+        }
+    }
+
+    fun consumeMirrorTransition(markId: String) {
+        if (pendingMirrorTransition()?.markId == markId) {
+            p.edit().remove("pending_mirror_transition").apply()
+        }
+    }
+
+    private fun mirrorStateJson(state: MirrorState) = JSONObject()
+        .put("clarity", state.clarity)
+        .put("integrity", state.integrity)
+        .put("doneStreak", state.doneStreak)
+        .put("snoozeStreak", state.snoozeStreak)
+
+    private fun parseMirrorState(json: JSONObject) = MirrorState(
+        clarity = json.optInt("clarity", 32).coerceIn(0, 100),
+        integrity = json.optInt("integrity", 100).coerceIn(0, 100),
+        doneStreak = json.optInt("doneStreak", 0).coerceAtLeast(0),
+        snoozeStreak = json.optInt("snoozeStreak", 0).coerceAtLeast(0)
+    )
 
     fun setActivePayload(value: PromptPayload?) { p.edit().apply { if (value == null) remove("active_payload") else putString("active_payload", payloadJson(value).toString()) }.apply() }
     fun activePayload(): PromptPayload? = p.getString("active_payload", null)?.let { parsePayload(JSONObject(it)) }
@@ -193,7 +248,7 @@ class AppPrefs(context: Context) {
     }
 
     fun history(): JSONArray = JSONArray(p.getString("events", "[]"))
-    fun clearHistory() { p.edit().remove("events").remove("active_event_id").apply() }
+    fun clearHistory() { p.edit().remove("events").remove("active_event_id").remove("pending_mirror_transition").apply() }
 
     fun activeLabel(): String? = activePayload()?.audioLabel
     fun activeIsRetry(): Boolean = p.getBoolean("active_is_retry", false)
