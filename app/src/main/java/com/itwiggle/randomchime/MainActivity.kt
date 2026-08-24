@@ -157,7 +157,12 @@ class MainActivity : Activity() {
         panel.addView(section("The mirror remembers."))
         panel.addView(AccountabilityMirrorView(this).apply {
             setMirrorContent(state, marks, transition) {
-                transition?.let { prefs.consumeMirrorTransition(it.markId) }
+                transition?.let {
+                    prefs.consumeMirrorTransition(it.markId)
+                    post {
+                        if (!isFinishing && !isDestroyed) draw()
+                    }
+                }
             }
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330))
         })

@@ -28,7 +28,6 @@ class AccountabilityMirrorView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     private var mirrorState: MirrorState = MirrorState()
-    private var targetMirrorState: MirrorState = MirrorState()
     private var marks: List<MirrorMark> = emptyList()
     private var animatedMarkId: String? = null
     private var transitionOutcome: String? = null
@@ -65,7 +64,6 @@ class AccountabilityMirrorView @JvmOverloads constructor(
         transition: MirrorTransition? = null,
         onAnimationFinished: (() -> Unit)? = null
     ) {
-        targetMirrorState = state
         mirrorState = transition?.from ?: state
         marks = recentMarks
         animatedMarkId = transition?.markId?.takeIf { id -> recentMarks.any { it.id == id } }
@@ -133,9 +131,10 @@ class AccountabilityMirrorView @JvmOverloads constructor(
                 override fun onAnimationEnd(animation: Animator) {
                     if (animationWasCancelled) return
                     mirrorState = to
-                    targetMirrorState = to
                     transitionProgress = 1f
                     animationProgress = 1f
+                    transitionOutcome = null
+                    updateContentDescription()
                     invalidate()
                     onAnimationFinished?.invoke()
                 }
