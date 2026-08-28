@@ -5,7 +5,8 @@ on:
   push:
     branches:
       - main
-      - agent/native-android-cloud-build
+      - 'agent/**'
+      - native-android-mvp-v01
   pull_request:
 
 permissions:

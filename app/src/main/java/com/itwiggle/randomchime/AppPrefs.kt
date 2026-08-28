@@ -207,6 +207,19 @@ class AppPrefs(context: Context) {
         }
     }
 
+    fun pendingMirrorTransitionQueue(): List<MirrorTransition> {
+        val transitions = pendingMirrorTransitions()
+        val result = mutableListOf<MirrorTransition>()
+        for (index in 0 until transitions.length()) {
+            try {
+                result += parseMirrorTransition(transitions.getJSONObject(index))
+            } catch (_: Exception) {
+                // Skip malformed entries rather than dropping the whole queue.
+            }
+        }
+        return result
+    }
+
     fun consumeMirrorTransition(markId: String) {
         val transitions = pendingMirrorTransitions()
         for (index in 0 until transitions.length()) {

@@ -144,29 +144,29 @@ class MainActivity : Activity() {
     private fun drawAccountabilityMirror() {
         val state = prefs.mirrorState()
         val marks = prefs.recentMirrorMarks()
-        val pendingTransition = prefs.pendingMirrorTransition()
-        val transition = pendingTransition?.takeIf { pending ->
-            marks.any { it.id == pending.markId }
-        }
-        if (pendingTransition != null && transition == null) {
-            prefs.consumeMirrorTransition(pendingTransition.markId)
-        }
+        val queued = prefs.pendingMirrorTransitionQueue()
+        val playable = queued.filter { pending -> marks.any { it.id == pending.markId } }
+        queued.filterNot { pending -> marks.any { it.id == pending.markId } }
+            .forEach { prefs.consumeMirrorTransition(it.markId) }
 
         val panel = card()
         panel.addView(text("ACCOUNTABILITY MIRROR", 11f, true))
         panel.addView(section("The mirror remembers."))
+        val readout = text("Clarity ${state.clarity}% · Integrity ${state.integrity}%", 12f, true)
         panel.addView(AccountabilityMirrorView(this).apply {
-            setMirrorContent(state, marks, transition) {
-                transition?.let {
-                    prefs.consumeMirrorTransition(it.markId)
-                    post {
-                        if (!isFinishing && !isDestroyed) draw()
-                    }
+            setMirrorContent(
+                state,
+                marks,
+                playable,
+                onTransitionConsumed = { markId -> prefs.consumeMirrorTransition(markId) },
+                onQueueDrained = {
+                    val settled = prefs.mirrorState()
+                    readout.text = "Clarity ${settled.clarity}% · Integrity ${settled.integrity}%"
                 }
-            }
+            )
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330))
         })
-        panel.addView(text("Clarity ${state.clarity}% · Integrity ${state.integrity}%", 12f, true))
+        panel.addView(readout)
         val message = when {
             state.integrity < 35 -> "The reflection is still there. The surface between you and it is failing."
             state.integrity < 70 -> "Repeated avoidance is reaching deeper than the fog."

@@ -11,10 +11,12 @@ import android.graphics.Path
 import android.graphics.PathMeasure
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.HapticFeedbackConstants
 import android.view.animation.DecelerateInterpolator
 import kotlin.math.ceil
@@ -35,6 +37,11 @@ class AccountabilityMirrorView @JvmOverloads constructor(
     private var animationProgress = 1f
     private var animator: ValueAnimator? = null
     private var animationWasCancelled = false
+    private val transitionQueue = ArrayDeque<MirrorTransition>()
+    private var settledState: MirrorState = MirrorState()
+    private var onTransitionConsumed: ((String) -> Unit)? = null
+    private var onQueueDrained: (() -> Unit)? = null
+    private var visibilityListener: ViewTreeObserver.OnScrollChangedListener? = null
 
     private val density = resources.displayMetrics.density
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -61,18 +68,38 @@ class AccountabilityMirrorView @JvmOverloads constructor(
     fun setMirrorContent(
         state: MirrorState,
         recentMarks: List<MirrorMark>,
-        transition: MirrorTransition? = null,
-        onAnimationFinished: (() -> Unit)? = null
+        transitions: List<MirrorTransition> = emptyList(),
+        onTransitionConsumed: ((String) -> Unit)? = null,
+        onQueueDrained: (() -> Unit)? = null
     ) {
-        mirrorState = transition?.from ?: state
+        animator?.cancel()
+        animator = null
         marks = recentMarks
-        animatedMarkId = transition?.markId?.takeIf { id -> recentMarks.any { it.id == id } }
-        transitionOutcome = transition?.outcome
-        transitionProgress = if (animatedMarkId == null) 1f else 0f
-        animationProgress = if (animatedMarkId == null) 1f else 0f
+        settledState = state
+        this.onTransitionConsumed = onTransitionConsumed
+        this.onQueueDrained = onQueueDrained
+
+        transitionQueue.clear()
+        transitions
+            .filter { pending -> recentMarks.any { it.id == pending.markId } }
+            .forEach { transitionQueue.addLast(it) }
+
+        animatedMarkId = null
+        transitionOutcome = null
+        if (transitionQueue.isEmpty()) {
+            mirrorState = state
+            transitionProgress = 1f
+            animationProgress = 1f
+        } else {
+            // Hold the pre-outcome state. Nothing animates until the mirror is
+            // actually on screen, so a replay can never be missed.
+            mirrorState = transitionQueue.first().from
+            transitionProgress = 0f
+            animationProgress = 0f
+        }
         updateContentDescription()
-        startMirrorAnimation(transition, onAnimationFinished)
         invalidate()
+        maybeStartNextTransition()
     }
 
     private fun updateContentDescription() {
@@ -83,16 +110,47 @@ class AccountabilityMirrorView @JvmOverloads constructor(
                 "Integrity ${mirrorState.integrity} percent. $done completed marks and $skipped skipped marks visible."
     }
 
-    private fun startMirrorAnimation(
-        transition: MirrorTransition?,
-        onAnimationFinished: (() -> Unit)?
-    ) {
+    private fun visibleFraction(): Float {
+        if (!isShown || height <= 0) return 0f
+        val rect = Rect()
+        if (!getGlobalVisibleRect(rect)) return 0f
+        return (rect.height().toFloat() / height.toFloat()).coerceIn(0f, 1f)
+    }
+
+    private fun maybeStartNextTransition() {
+        if (animator?.isRunning == true) return
+        val next = transitionQueue.firstOrNull()
+        if (next == null) {
+            if (mirrorState != settledState) {
+                mirrorState = settledState
+                transitionProgress = 1f
+                animationProgress = 1f
+                updateContentDescription()
+                invalidate()
+            }
+            return
+        }
+        if (visibleFraction() < 0.6f) return
+        transitionQueue.removeFirst()
+        startMirrorAnimation(next)
+    }
+
+    private fun startMirrorAnimation(transition: MirrorTransition) {
         animator?.cancel()
-        val id = animatedMarkId ?: return
-        val mark = marks.firstOrNull { it.id == id } ?: return
-        val from = transition?.from ?: return
+        val mark = marks.firstOrNull { it.id == transition.markId }
+        if (mark == null) {
+            onTransitionConsumed?.invoke(transition.markId)
+            maybeStartNextTransition()
+            return
+        }
+        val from = transition.from
         val to = transition.to
         val outcome = transition.outcome
+        animatedMarkId = transition.markId
+        transitionOutcome = outcome
+        mirrorState = from
+        transitionProgress = 0f
+        animationProgress = 0f
         animationWasCancelled = false
         animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = when (outcome) {
@@ -129,14 +187,22 @@ class AccountabilityMirrorView @JvmOverloads constructor(
                 }
 
                 override fun onAnimationEnd(animation: Animator) {
-                    if (animationWasCancelled) return
+                    // Settle on the destination state either way: a cancelled
+                    // animation must never strand the mirror mid-interpolation.
                     mirrorState = to
                     transitionProgress = 1f
                     animationProgress = 1f
                     transitionOutcome = null
+                    animatedMarkId = null
                     updateContentDescription()
                     invalidate()
-                    onAnimationFinished?.invoke()
+                    if (animationWasCancelled) return
+                    onTransitionConsumed?.invoke(transition.markId)
+                    if (transitionQueue.isEmpty()) {
+                        onQueueDrained?.invoke()
+                    } else {
+                        post { maybeStartNextTransition() }
+                    }
                 }
             })
             start()
@@ -153,9 +219,29 @@ class AccountabilityMirrorView @JvmOverloads constructor(
     private fun lerp(from: Int, to: Int, progress: Float) =
         (from + (to - from) * progress).toInt().coerceIn(0, 100)
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        val listener = ViewTreeObserver.OnScrollChangedListener { maybeStartNextTransition() }
+        visibilityListener = listener
+        viewTreeObserver.addOnScrollChangedListener(listener)
+        maybeStartNextTransition()
+    }
+
     override fun onDetachedFromWindow() {
+        visibilityListener?.let { viewTreeObserver.removeOnScrollChangedListener(it) }
+        visibilityListener = null
         animator?.cancel()
         super.onDetachedFromWindow()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (visibility == VISIBLE) maybeStartNextTransition()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        maybeStartNextTransition()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
