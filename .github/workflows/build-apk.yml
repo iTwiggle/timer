@@ -10,7 +10,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -36,3 +36,24 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish rolling dev release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk RandomChime-debug.apk
+          if ! gh release view dev-latest >/dev/null 2>&1; then
+            gh release create dev-latest \
+              --title "Latest dev build" \
+              --notes "Rolling build - replaced on every push." \
+              --prerelease
+          fi
+          gh release upload dev-latest RandomChime-debug.apk --clobber
+          printf '%s\n' \
+            "Rolling dev build. This tag always holds the newest APK." \
+            "" \
+            "Branch: ${{ github.ref_name }}" \
+            "Commit: ${{ github.sha }}" \
+            "Built:  $(date -u '+%Y-%m-%d %H:%M UTC')" > notes.md
+          gh release edit dev-latest --notes-file notes.md
